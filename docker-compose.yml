@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      POSTGRES_DB: probo
+      PGDATA: /data/postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - probo:/data/postgres
+    restart: unless-stopped
+
+volumes:
+  probo:

@@ -1,0 +1,31 @@
+{
+  "name": "api",
+  "version": "0.0.0",
+  "private": true,
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm",
+    "start": "node dist/index.js",
+    "dev": "tsup src/index.ts --format cjs --watch --onSuccess \"node dist/index.js\"",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src/"
+  },
+  "dependencies": {
+    "bcrypt": "^5.1.1",
+    "dotenv": "^16.4.7",
+    "jsonwebtoken": "^9.0.2",
+    "kafkajs": "^2.2.4",
+    "redis": "^4.7.0",
+    "uuid": "^11.0.3"
+  },
+  "devDependencies": {
+    "@repo/eslint-config": "workspace:*",
+    "@repo/typescript-config": "workspace:*",
+    "@types/bcrypt": "^5.0.2",
+    "@types/jsonwebtoken": "^9.0.7",
+    "tsup": "^8.0.2",
+    "typescript": "5.5.4"
+  }
+}
