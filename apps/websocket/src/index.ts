@@ -65,6 +65,11 @@ class WSServer {
             
         })
 
+        this.consumer.on('consumer.crash', (error)=>{
+            console.error('kafka consumer crashed', error);
+            
+        })
+
         await this.consumer.connect();
         await this.consumer.subscribe({topics:['market-updates', 'orderbook-updates'], fromBeginning:false})
 
@@ -93,11 +98,42 @@ class WSServer {
             }
         })
     }  
+
+    public async shutdown(){
+        console.log('Initiating server shutdown......');
+
+        for (const client of this.clients){
+            client.close(1000, 'Shutting down the server ')
+        }
+        this.clients.clear();
+
+        try {
+            await this.consumer.disconnect();
+        } catch (error) {
+            console.error('Error disconnecting kafka consumer:', error);
+        }
+
+        this.wss.close((error)=>{
+            if(error){
+                console.error('Failed to close the websocket server:', error);
+            }else{
+                console.log('Server shutdown complete');
+            }
+        });
+    }
 }
 
 async function main() {
     try {
         const wsServer = WSServer.getInstance();
+        
+        ['SIGINT', 'SIGTERM'].forEach(signal =>{
+            process.on(signal, async()=>{
+                console.log(`Received ${signal}, Initiating server shutdown...`);
+                await wsServer.shutdown();
+                process.exit(0);
+            })
+        })
     } catch (error) {
         console.error('Failed to start WebSocket server:', error);
     }
