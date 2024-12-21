@@ -146,12 +146,6 @@ importers:
         specifier: 5.5.4
         version: 5.5.4
 
-  apps/enginecore:
-    dependencies:
-      kafkajs:
-        specifier: ^2.2.4
-        version: 2.2.4
-
   apps/proboclient:
     dependencies:
       react:
@@ -204,9 +198,21 @@ importers:
         specifier: ^8.18.0
         version: 8.18.0
     devDependencies:
+      '@repo/eslint-config':
+        specifier: workspace:*
+        version: link:../../packages/eslint-config
+      '@repo/typescript-config':
+        specifier: workspace:*
+        version: link:../../packages/typescript-config
       '@types/ws':
         specifier: ^8.5.13
         version: 8.5.13
+      tsup:
+        specifier: ^8.0.2
+        version: 8.3.5(postcss@8.4.49)(tsx@4.19.2)(typescript@5.5.4)
+      typescript:
+        specifier: 5.5.4
+        version: 5.5.4
 
   packages/db:
     dependencies:

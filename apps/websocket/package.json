@@ -1,19 +1,26 @@
 {
-  "name": "websocket",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "name": "api",
+  "version": "0.0.0",
+  "private": true,
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
   "scripts": {
-    "start": "tsc -b && node dist/index.js"
+    "build": "tsup src/index.ts --format cjs,esm",
+    "start": "node dist/index.js",
+    "dev": "tsup src/index.ts --format cjs --watch --onSuccess \"node dist/index.js\"",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src/"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "dependencies": {
     "kafkajs": "^2.2.4",
     "ws": "^8.18.0"
   },
   "devDependencies": {
-    "@types/ws": "^8.5.13"
+    "@repo/eslint-config": "workspace:*",
+    "@repo/typescript-config": "workspace:*",
+    "@types/ws": "^8.5.13",
+    "tsup": "^8.0.2",
+    "typescript": "5.5.4"
   }
 }
