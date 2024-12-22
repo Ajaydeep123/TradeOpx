@@ -18,6 +18,7 @@ export class KafkaManager {
         });
 
         this.producer = kafka.producer();
+        this.initialize();
     }
     
     private async initialize(){
@@ -31,10 +32,9 @@ export class KafkaManager {
         }
     }
 
-    public static async getInstance(){
+    public static getInstance(){
         if(!this.instance){
             this.instance = new KafkaManager()
-            await this.instance.initialize()
         }
         return this.instance
     }

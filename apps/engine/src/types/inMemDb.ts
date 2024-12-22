@@ -7,6 +7,26 @@ export interface User {
     balance:BalanceStore
 }
 
+export interface Position {
+    quantity:number;
+    locked:number;
+}
+
+export interface StockBalance{
+    [marketSymbol: string]:{
+        'YES'?:Position;
+        'No'?:Position;
+    };
+}
+export interface BalanceStore {
+    stocks: StockBalance;
+    INR:{
+        available:number;
+        locked:number;
+    }
+}
+
+
 export interface Category {
     id: string,
     title: string,
@@ -50,25 +70,6 @@ export interface OrderBook {
     }
 }
 
-export interface Position {
-    quantity:number;
-    locked:number;
-}
-
-
-export interface StockBalance{
-    [marketSymbol: string]:{
-        'YES'?:Position;
-        'No'?:Position;
-    };
-}
-export interface BalanceStore {
-    stocks: StockBalance;
-    INR:{
-        available:number;
-        locked:number;
-    }
-}
 
 export interface Trade {
     seller : string;
