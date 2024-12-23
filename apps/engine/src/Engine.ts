@@ -615,13 +615,167 @@ export class Engine {
         }
     }
 
+    private async handleOnrampInr(request:any){
+        const {id} = request;
+        const {token, amount} = request.payload;
+
+        try{
+            const userId = this.verifyToken(token)
+            const user = this.usersMap.get(userId);
+
+            if(!user){
+                throw new Error("User not found")
+            }
+            
+            user.balance.INR.available += amount*100;
+
+            const responsePayload = {
+                type:'onramp_inr_response',
+                data:{
+                    success:true,
+                    user,
+                    amount,
+                    message:`Onramped ${amount} INR to ${user.username}'s account.`
+                }
+            }
+
+            await KafkaManager.getInstance().publishToKafkaStream({
+                topic:"responses",
+                messages:[{
+                    key:id,
+                    value:JSON.stringify(responsePayload)
+                }]
+            })
+
+        }catch(error){
+            const errorMessage = error instanceof Error ? error.message : "something went wrong";
+            const responsePayload = {
+                type:"onramp_inr_response",
+                data:{
+                    success:false,
+                    message:"Failed to onramp INR",
+                    error:errorMessage
+                }
+            }
+            await KafkaManager.getInstance().publishToKafkaStream({
+                topic:"responses",
+                messages:[{
+                    key:id,
+                    value:JSON.stringify(responsePayload)
+                }]
+            })
+        }
+    }
+
+    private async handleGetUserOrders(request:any){
+         const {id} = request;
+         const {token, marketSymbol} = request.payload;
+         try {
+            const userId = this.verifyToken(token)
+
+            const userBuyMarketOrders = this.buyOrders.get(marketSymbol)?.filter(order =>order.userId ===userId);
+            const userSellMarketOrders = this.sellOrders.get(marketSymbol)?.filter(order => order.userId === userId);
+
+            const responsePayload= {
+                type:"get_user_orders_response",
+                data:{
+                    success:true,
+                    userBuyMarketOrders,
+                    userSellMarketOrders,
+                    message:"Orders retreived successfully!"
+                }
+            }
+
+            await KafkaManager.getInstance().publishToKafkaStream({
+                topic:"responses",
+                messages:[{
+                    key:id,
+                    value:JSON.stringify(responsePayload)
+                }]
+            })
+         } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : "something went wrong";
+            const responsePayload = {
+                type: "get_user_orders_response",
+                data: {
+                    success: false,
+                    message: 'Failed to fetch orders.',
+                    error:errorMessage
+                }
+            }
+            await KafkaManager.getInstance().publishToKafkaStream({
+                topic:"responses",
+                messages:[{
+                    key:id,
+                    value:JSON.stringify(responsePayload)
+                }]
+            })
+         }
+    }
+
+    private async handleGetOrderbook(request:any){
+
+    }
+
+    private async handleGetMarketTrades(request:any){
+        const {id} = request;
+        const {token, marketSymbol} = request.payload;
+
+        try {
+            const userId = this.verifyToken(token)
+            
+            const user = this.usersMap.get(userId);
+
+            if(!user || !userId){
+                throw new Error("Unauthorized")
+            }
+
+            const trades = this.tradeHistory.get(marketSymbol)
+            if(!trades){
+                throw new Error('No trades found')
+            }
+            const responsePayload = {
+                type:'get_market_trades_response',
+                data:{
+                    success:true,
+                    trades,
+                    message:"Retreived the market trades!"
+                }
+            }
+
+            await KafkaManager.getInstance().publishToKafkaStream({
+                topic:"responses",
+                messages:[{
+                    key:id,
+                    value:JSON.stringify(responsePayload)
+                }]
+            })
+            
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : "something went wrong";
+            const responsePayload = {
+                type: "get_market_trades_response",
+                data: {
+                    success: false,
+                    message: 'Failed to fetch trades.',
+                    error:errorMessage
+                }
+            }
+            await KafkaManager.getInstance().publishToKafkaStream({
+                topic:"responses",
+                messages:[{
+                    key:id,
+                    value:JSON.stringify(responsePayload)
+                }]
+            })            
+            
+        }
+    }
+
     private async handleSellOrder(request:any){
 
     }
     private async handleBuyOrder(request:any){
-
-    }
-    private async handleOnrampInr(request:any){
 
     }
 
@@ -633,14 +787,8 @@ export class Engine {
     private async handleMint(request:any){
 
     }
-    private async handleGetOrderbook(request:any){
 
-    }
-    private async handleGetMarketTrades(request:any){
 
-    }
-    private async handleGetUserOrders(request:any){
 
-    }
 
 }
