@@ -15,7 +15,7 @@ export interface Position {
 export interface StockBalance{
     [marketSymbol: string]:{
         'YES'?:Position;
-        'No'?:Position;
+        'NO'?:Position;
     };
 }
 export interface BalanceStore {

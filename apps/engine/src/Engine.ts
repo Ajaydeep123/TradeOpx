@@ -86,7 +86,7 @@ export class Engine {
                     break;
 
                 case 'cancel_sell_order':
-                    await this.handleSellOrder(request);
+                    await this.handleCancelSellOrder(request);
                     break;
 
                 case 'get_user_market_orders':
@@ -109,6 +109,60 @@ export class Engine {
             console.error("Error processing request:", error);
             throw error;
         }
+    }
+
+    private createOrderbookData(symbol:string){
+        const sellOrders = this.sellOrders.get(symbol) || [];
+
+        const noOrders = sellOrders.filter(order => order.side === Side.NO && order.status !== OrderStatus.CANCELLED && order.status!== OrderStatus.FILLED);
+        const yesOrders = sellOrders.filter(order => order.side === Side.YES && order.status !== OrderStatus.CANCELLED && order.status!== OrderStatus.FILLED);
+        
+        const noOrderBook:OrderBook = {}
+        const yesOrderBook:OrderBook = {}
+
+        for(const order of noOrders){
+            const price = order.price;
+            if(!noOrderBook[price]){
+                noOrderBook[price] = {quantity: 0}
+            }
+            noOrderBook[price].quantity += order.remainingQty
+
+        }
+
+        for (const order of yesOrders){
+            const price = order.price;
+
+            if(!yesOrderBook[price]){
+                yesOrderBook[price] = {quantity:0}
+            }
+            yesOrderBook[price].quantity +=order.remainingQty
+        }
+
+        return {
+            yesOrderBook,
+            noOrderBook
+        }
+    }
+
+    private async sendOrderBookUpdate(symbol:string){
+        const orderBookData = this.createOrderbookData(symbol);
+        
+        const orderbookUpdate = {
+            type:'orderbook_update',
+            data:{
+                success: true,
+                marketSymbol:symbol,
+                data:orderBookData
+            }
+        };
+
+        await KafkaManager.getInstance().publishToKafkaStream({
+            topic:'orderbook-updates',
+            messages:[{
+                key:symbol,
+                value:JSON.stringify(orderbookUpdate)
+            }]
+        })
     }
 
     private findUserByUsername(username:string): User | null{
@@ -713,10 +767,6 @@ export class Engine {
          }
     }
 
-    private async handleGetOrderbook(request:any){
-
-    }
-
     private async handleGetMarketTrades(request:any){
         const {id} = request;
         const {token, marketSymbol} = request.payload;
@@ -772,6 +822,59 @@ export class Engine {
         }
     }
 
+    private async handleGetOrderbook(request:any){
+        const {id} = request;
+        const {token, symbol} = request.payload;
+        try {
+            const userId = this.verifyToken(token)
+            
+            const user = this.usersMap.get(userId);
+
+            if(!user || !userId){
+                throw new Error("Unauthorized")
+            }
+            const market = Array.from(this.marketsMap.values()).find(m => m.symbol === symbol && m.status === MarketStatus.ACTIVE);
+            if (!market) {
+                throw new Error(`Active market ${symbol} not found`);
+            }
+
+            const orderbookData = this.createOrderbookData(symbol);
+
+            const responsePayload = {
+                type:'get_orderbook_response',
+                data:{
+                    success: true,
+                    orderbook:orderbookData,
+                    message:"successfully fetched orderbook data."
+                }
+            }
+
+            await KafkaManager.getInstance().publishToKafkaStream({
+                topic:'responses',
+                messages:[{
+                    key:id,
+                    value:JSON.stringify(responsePayload)
+                }]
+            })   
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : "something went wrong";
+            const responsePayload = {
+                type: "get_orderbook_response",
+                data: {
+                    success: false,
+                    message: 'Failed to get orderbook.',
+                    error:errorMessage
+                }
+            }
+            await KafkaManager.getInstance().publishToKafkaStream({
+                topic:"responses",
+                messages:[{
+                    key:id,
+                    value:JSON.stringify(responsePayload)
+                }]
+            })
+        }
+    }
     private async handleSellOrder(request:any){
 
     }
@@ -781,14 +884,249 @@ export class Engine {
 
 
     private async handleCancelBuyOrder(request:any){
+        /*
+        1. find user, 
+        2. find order in buyOrders map -> if order exists and whether this order was created by user who requested it's 
+        3. check if the market is active or not
+        4. Check if the order is already filled or cancelled or partially filled
+        5. calculate refund    
+        */
+       const {id} = request;
+       const {token, marketSymbol, orderId} = request.payload
+
+       try {
+        const userId = this.verifyToken(token)
+
+        const user = this.usersMap.get(userId)
+        if(!user || !userId){
+            throw new Error("User not found!")
+        }
+
+        const market = Array.from(this.marketsMap.values()).find(m=>m.symbol === marketSymbol);
+
+        if(!market || market.status !== MarketStatus.ACTIVE){
+            throw new Error(`Cancellation not allowed on ${marketSymbol}, as the market is not active.`)
+        }
+        
+        const orderToCancel = this.buyOrders.get(marketSymbol)?.find(order => order.id === orderId && order.userId === userId )
+        if(!orderToCancel){
+            throw new Error(`Order not found.`)
+        }
+
+        if(orderToCancel.status === OrderStatus.FILLED){
+            throw new Error('Cannot cancel an already FILLED order.')
+        }
+
+        const refund = orderToCancel.price * orderToCancel.remainingQty;
+
+        user.balance.INR.available += refund;
+        user.balance.INR.locked -=refund;
+
+        orderToCancel.status = OrderStatus.CANCELLED;
+
+        const responsePayload = {
+            type:"cancel_buy_order_response",
+            data:{
+                success:true,
+                message:"successfully cancelled your buy order",
+                cancelledOrderId:orderId,
+                buyOrders: this.buyOrders.values()
+            }
+        }
+
+        await KafkaManager.getInstance().publishToKafkaStream({
+            topic:"responses",
+            messages:[{
+                key:id,
+                value:JSON.stringify(responsePayload)
+            }]
+        })
+        
+       } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : "something went wrong";
+            const responsePayload = {
+                type: "cancel_buy_order_response",
+                data: {
+                    success: false,
+                    message: 'Failed to fullfill the request',
+                    error:errorMessage
+                }
+            }
+            await KafkaManager.getInstance().publishToKafkaStream({
+                topic:"responses",
+                messages:[{
+                    key:id,
+                    value:JSON.stringify(responsePayload)
+                }]
+            })   
+        
+       }
+
+    }
+    private async handleCancelSellOrder(request:any){
+        /*
+
+        Find userId with the help of jwt token,
+        find user,
+        find orderToCancel against orderId and check if the user is same as the one who requested the cancellation
+        check if the order is already filled -> throw error
+        In sell -> Stock balances are affected, so we'll calculate refund in stocks assets
+        Update the available balance of stocks 
+        Update the locked value of stocks
+        update the status of order to CANCELLED
+
+        */
+       const {id} = request;
+       const {token, marketSymbol, orderId} = request.payload
+
+       try {
+        const userId = this.verifyToken(token)
+
+        const user = this.usersMap.get(userId)
+        if(!user || !userId){
+            throw new Error("User not found!")
+        }
+
+        const market = Array.from(this.marketsMap.values()).find(m=>m.symbol === marketSymbol);
+
+        const orderToCancel = this.sellOrders.get(marketSymbol)?.find(order => order.id === orderId && order.userId === userId )
+        if(!orderToCancel){
+            throw new Error(`Order not found.`)
+        }
+
+        if(orderToCancel.status === OrderStatus.FILLED){
+            throw new Error('Cannot cancel an already FILLED order.')
+        }
+
+        const refund = orderToCancel.remainingQty;
+        const stockPosition = user.balance.stocks[marketSymbol as string]?.[orderToCancel.side as Side];
+        if (!stockPosition) {
+            throw new Error("Stock position not found for the specified market symbol and side.");
+        }
+        stockPosition.quantity += refund;
+        stockPosition.locked -= refund;    
+
+        orderToCancel.status = OrderStatus.CANCELLED;
+
+        await this.sendOrderBookUpdate(marketSymbol)
+        
+        const responsePayload = {
+            type:"cancel_sell_order_response",
+            data:{
+                success:true,
+                message:"successfully cancelled your sell order",
+                cancelledOrderId:orderId,
+                buyOrders: this.buyOrders.values()
+            }
+        }
+
+        await KafkaManager.getInstance().publishToKafkaStream({
+            topic:"responses",
+            messages:[{
+                key:id,
+                value:JSON.stringify(responsePayload)
+            }]
+        })
+        
+       } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : "something went wrong";
+            const responsePayload = {
+                type: "cancel_sell_order_response",
+                data: {
+                    success: false,
+                    message: 'Failed to fullfill the request',
+                    error:errorMessage
+                }
+            }
+            await KafkaManager.getInstance().publishToKafkaStream({
+                topic:"responses",
+                messages:[{
+                    key:id,
+                    value:JSON.stringify(responsePayload)
+                }]
+            })   
+        
+       }
 
     }
 
     private async handleMint(request:any){
+        const {id} = request;
+        const {token, symbol, quantity, price} = request.payload;
 
+        const priceInPaise = price*100;
+
+        try {
+            const userId = this.verifyToken(token)
+            const user = this.usersMap.get(userId);
+
+            if(!user){
+                throw new Error('User not found')
+            }
+
+            if(user.role.toLowerCase()!== 'admin'){
+                throw new Error("Unauthorized")
+            }
+
+            const market = Array.from(this.marketsMap.values()).find(market =>market.symbol === symbol && market.status === MarketStatus.ACTIVE)
+            if(!market){
+                throw new Error(`Active market not found`)
+            }
+            const userBalance = user.balance.INR.available;
+            const totalCost = 2*quantity*priceInPaise;
+            if(userBalance<2*quantity*priceInPaise){
+                throw new Error("Insufficient balance")
+            }
+
+            user.balance.INR.available -=totalCost;
+            user.balance.INR.locked +=totalCost;
+
+            if(!user.balance.stocks[symbol]){
+                user.balance.stocks[symbol] = {
+                    YES:{quantity:0, locked:0},
+                    NO:{quantity:0, locked:0}
+                };
+            }
+
+            user.balance.stocks[symbol].YES!.quantity += quantity;
+            user.balance.stocks[symbol].NO!.quantity += quantity;
+            user.balance.INR.locked -=totalCost;
+
+            const responsePayload = {
+                type: 'mint_response',
+                data:{
+                    success:true,
+                    mintUser:user,
+                    quantity,
+                    symbol,
+                    message:`Minted ${quantity} yes and ${quantity} no tokens of ${symbol} to ${userId}`
+                }
+            }
+
+            await KafkaManager.getInstance().publishToKafkaStream({
+                topic:"responses",
+                messages:[{
+                    key:id,
+                    value:JSON.stringify(responsePayload)
+                }]
+            })
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : "something went wrong";
+            const responsePayload = {
+                type: "mint_response",
+                data: {
+                    success: false,
+                    message: 'Failed to fullfill the request',
+                    error:errorMessage
+                }
+            }
+            await KafkaManager.getInstance().publishToKafkaStream({
+                topic:"responses",
+                messages:[{
+                    key:id,
+                    value:JSON.stringify(responsePayload)
+                }]
+            }) 
+        }
     }
-
-
-
-
 }
